@@ -1,0 +1,238 @@
+------------------------------------------------------------------------- GAMEBOY.C------------------------------------------------------------------------- 
+#include "gameboy.h"
+
+int main (void){
+
+	t_config* config;
+	t_log* loggerInfo;
+	t_log* loggerError;
+	char* puerto;
+	char* ip;
+
+	struct addrinfo* servidorBroker;
+	struct addrinfo* servidorTeam;
+	struct addrinfo* servidorGamecard;
+	int socketClientBroker, socketClientTeam, socketClientGamecard;
+
+	loggerInfo = iniciar_logger (LOG_LEVEL_INFO);
+	loggerError = iniciar_logger (LOG_LEVEL_ERROR);
+
+	config = leer_config();
+
+	ip = config_get_string_value(config, "IPBROKER");
+	puerto = config_get_string_value(config, "PUERTOBROKER");
+	//config_set_value(config,"FRECUENCIA_COMPACTACION", 35111);
+
+	log_info(loggerInfo, "\nLei la IP %s y el Puerto %s", ip, puerto);
+
+	printf("\nCreando servidor ");
+	servidorBroker = crearServidor (ip, puerto);
+	printf("\nServidor Broker creado ");
+	printf("\nCreando conexion ");
+	socketClientBroker = conectarCliente(ip, puerto);
+	printf("\nConexion Broker creada\n");
+
+	ip = config_get_string_value(config, "IPTEAM");
+	puerto = config_get_string_value(config, "PUERTOTEAM");
+	//config_set_value(config,"FRECUENCIA_COMPACTACION", 35111);
+
+	log_info(loggerInfo, "\nLei la IP %s y el Puerto %s", ip, puerto);
+
+	printf("\nCreando servidor ");
+	servidorTeam = crearServidor (ip, puerto);
+	printf("\nServidor Team creado ");
+	printf("\nCreando conexion ");
+	socketClientTeam = conectarCliente(ip, puerto);
+	printf("\nConexion Team creada\n");
+
+	ip = config_get_string_value(config, "IPGAMECARD");
+	puerto = config_get_string_value(config, "PUERTOGAMECARD");
+	//config_set_value(config,"FRECUENCIA_COMPACTACION", 35111);
+
+	log_info(loggerInfo, "\nLei la IP %s y el Puerto %s", ip, puerto);
+
+	printf("\nCreando servidor ");
+	servidorGamecard = crearServidor (ip, puerto);
+	printf("\nServidor Gamecard creado");
+	printf("\nCreando conexion ");
+	socketClientGamecard = conectarCliente(ip, puerto);
+	printf("\nConexion Gamecard creada\n");
+
+	terminar_programa ( loggerInfo, loggerError, config);
+	terminarConexiones (socketClientBroker, socketClientTeam, socketClientGamecard);
+
+	return 0;
+}
+
+t_log* iniciar_logger(t_log_level nivel)
+{
+	t_log* logger;
+	logger = log_create ("gameboy.log", "GAMEBOY", 1, nivel);
+	/*Creamos el if para evaluar por si surge un error.
+	 * Seria crear un if por cada errror que puede surgir con la funcion */
+	if (logger == NULL){
+		printf ("Problemas con el logger");
+		exit (1);
+	}
+	return logger;
+}
+
+t_config* leer_config(void)
+{
+	t_config* config;
+	config = config_create("./gameboy.config");
+	if (config == NULL){
+		printf ("Problema con el config");
+		exit (2);
+	}
+	return config;
+}
+
+void terminar_programa(t_log* loggerInfo, t_log* loggerError, t_config* config)
+{
+	//Hay que eliminar el logger y liberar el espacio en la memoria. Si es NULL no ocupa nada.
+	if (loggerInfo != NULL){
+		log_destroy(loggerInfo);
+	}
+
+	if (loggerError!= NULL){
+		log_destroy(loggerError);
+	}
+
+	if (config != NULL){
+			config_destroy(config);
+	}
+}
+
+void terminarConexiones (int socketClientBroker, int socketClientTeam, int socketClientGamecard) {
+	liberar_conexion (socketClientBroker);
+	liberar_conexion (socketClientTeam);
+	liberar_conexion (socketClientGamecard);
+	//Y por ultimo, para cerrar, hay que liberar lo que utilizamos (conexion, log y config) con las funciones de las commons y del TP mencionadas en el enunciado
+}
+
+int conectarCliente(char* ip, char* puerto)
+{
+
+	struct addrinfo hints;
+	struct addrinfo *result, *rp;
+	int socketCliente, s;
+
+	memset(&hints, 0, sizeof(struct addrinfo));
+	hints.ai_family = AF_UNSPEC;
+	hints.ai_socktype = SOCK_DGRAM;
+	hints.ai_flags = 0;
+	hints.ai_protocol = 0;
+
+	s = getaddrinfo(ip, puerto, &hints, &result);
+
+	if (s != 0) {
+        fprintf(stderr, "getaddrinfo: %s\n", gai_strerror(s));
+        exit(EXIT_FAILURE);
+    }
+
+	for (rp = result; rp != NULL; rp = rp->ai_next) {
+		socketCliente = socket(rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+	    if (socketCliente == -1)
+	    	continue;
+
+	    if (connect(socketCliente, rp->ai_addr, rp->ai_addrlen) != -1) 	break;               /* Success */
+
+	    close(socketCliente);
+	}
+
+	if (rp == NULL) {               /* No address succeeded */
+		fprintf(stderr, "Could not connect\n");
+		exit(EXIT_FAILURE);
+	}
+
+	freeaddrinfo(result);           /* No longer needed */
+
+}
+
+void* crearServidor (char* ip, char* puerto)
+{
+
+	struct addrinfo hints;
+	struct addrinfo *result, *rp;
+	int sfd, s;
+
+	if(ip == NULL){
+		fprintf(stderr, "No hay ip \n", ip);
+		exit(EXIT_FAILURE);
+	}
+
+	memset(&hints, 0, sizeof(struct addrinfo));
+	hints.ai_family = AF_UNSPEC;
+	hints.ai_socktype = SOCK_STREAM;
+	hints.ai_flags = AI_PASSIVE;
+	hints.ai_protocol = 0;
+	hints.ai_canonname = NULL;
+	hints.ai_addr = NULL;
+	hints.ai_next = NULL;
+
+	s = getaddrinfo(NULL, puerto, &hints, &result);
+
+	if (s != 0) {
+		fprintf (stderr, "getaddrinfo: %s \n", gai_strerror(s));
+		exit (EXIT_FAILURE);
+	}
+
+	rp = result;
+
+	while (rp != NULL){
+		sfd = socket (rp->ai_family, rp->ai_socktype, rp->ai_protocol);
+
+		if(sfd == -1) continue;
+
+		if (bind(sfd, rp->ai_addr, rp->ai_addrlen) == 0) break;
+
+		close (sfd);
+
+		rp = rp->ai_next;
+	}
+
+	if (rp == NULL ){
+		fprintf (stderr, "No se puede bindear\n");
+		exit(EXIT_FAILURE);
+	}
+
+	freeaddrinfo(result);
+
+	return result;
+}
+
+void liberar_conexion(int socket_cliente)
+{
+	close(socket_cliente);
+	printf("\nTerminando socket");
+}
+
+------------------------------------------------------------------------- GAMEBOY.H------------------------------------------------------------------------- 
+
+#ifndef GAMEBOY_H_
+#define GAMEBOY_H_
+
+
+#include <commons/log.h>
+#include <commons/string.h>
+#include <commons/config.h>
+#include <pthread.h>
+#include <sys/socket.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <signal.h>
+#include <unistd.h>
+#include <netdb.h>
+#include <readline/readline.h>
+
+
+t_log* iniciar_logger(t_log_level nivel);
+t_config* leer_config(void);
+void terminar_programa(t_log* loggerInfo, t_log* loggerError, t_config* config);
+void liberar_conexion(int socket_cliente);
+int conectarCliente(char* ip, char* puerto);
+void* crearServidor (char* ip, char* puerto);
+void terminarConexiones (int socketClientBroker, int socketClientTeam, int socketClientGamecard);
+
+#endif /* GAMEBOY_H_ */
